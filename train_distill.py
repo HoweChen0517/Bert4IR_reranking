@@ -80,13 +80,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--epochs", type=float, default=15, help="Number of training epochs",
+    "--epochs", type=float, default=8, help="Number of training epochs",
 )
 parser.add_argument(
     "--warmup_steps", type=int, default=8, help="Number of warmup steps for learning rate scheduler"
 )
 parser.add_argument(
-    "--max_steps", type=int, default=300, help="Number of training steps"
+    "--max_steps", type=int, default=3000, help="Number of training steps"
 )
 parser.add_argument(
     "--train_batch_size", type=int, default=4, help="Training batch size"
@@ -100,7 +100,7 @@ parser.add_argument(
 parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate for training")
 args = parser.parse_args()
 
-OUTPUT_DIR = Path(args.output_dir) / args.model / "model"
+OUTPUT_DIR = Path(args.output_dir) / args.model / "experiment"
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
 teacher_tokenizer = AutoTokenizer.from_pretrained(args.pretrained_teacher_model)

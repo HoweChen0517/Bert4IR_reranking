@@ -33,7 +33,7 @@ parser.add_argument(
     help="Output directory to store models and results after training",
 )
 parser.add_argument(
-    "--epochs", type=float, default=1, help="Number of training epochs",
+    "--epochs", type=float, default=3, help="Number of training epochs",
 )
 parser.add_argument(
     "--train_batch_size", type=int, default=8, help="Training batch size"
@@ -45,10 +45,10 @@ parser.add_argument(
     "--warmup_steps", type=int, default=5000, help="Evaluation batch size"
 )
 parser.add_argument(
-    "--max_steps", type=int, default=4000, help="Number of training steps"
+    "--max_steps", type=int, default=8000, help="Number of training steps"
 )
 parser.add_argument(
-    "--eval_steps", type=int, default=100, help="Number of eval steps"
+    "--eval_steps", type=int, default=400, help="Number of eval steps"
 )
 parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate for training")
 sub_parsers = parser.add_subparsers(help="Selecting type of models", dest="model")
@@ -101,7 +101,7 @@ dense_parser.add_argument(
 args = parser.parse_args()
 
 
-OUTPUT_DIR = Path(args.output_dir) / args.model / "model"
+OUTPUT_DIR = Path(args.output_dir) / args.model / "experiment"
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
 ######################################################################

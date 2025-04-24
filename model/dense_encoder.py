@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 from transformers import AutoModel
-
+import wandb
 
 class DenseBiEncoder(nn.Module):
     """
@@ -104,7 +104,7 @@ class DenseBiEncoder(nn.Module):
         pos_scores = self.score_pairs(queries, pos_docs)
         neg_scores = self.score_pairs(queries, neg_docs)
         loss = self.loss(torch.cat((pos_scores, neg_scores), dim=0), torch.cat((torch.ones_like(pos_scores), torch.zeros_like(neg_scores)), dim=0))
-        
+        wandb.log({"train/loss": loss,})
         return loss, pos_scores, neg_scores
 
     def save_pretrained(self, model_dir, state_dict=None):

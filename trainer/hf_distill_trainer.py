@@ -6,6 +6,8 @@ from tqdm import tqdm
 import torch
 import ir_measures
 from ir_measures import *
+from safetensors.torch import load_file as load_safetensors
+from transformers.utils import WEIGHTS_NAME, SAFE_WEIGHTS_NAME # WEIGHTS_NAME 是 'pytorch_model.bin', SAFE_WEIGHTS_NAME 是 'model.safetensors'
 import os
 import logging
 
@@ -102,9 +104,63 @@ class HFDistillTrainer(Trainer):
         logger.info(
             f"Loading best model from {self.state.best_model_checkpoint} (score: {self.state.best_metric})."
         )
-        best_model_path = os.path.join(self.state.best_model_checkpoint, TRAINING_ARGS_NAME)
-        state_dict = torch.load(best_model_path, map_location="cpu")
-        self.model.model.load_state_dict(state_dict, False)
+        best_model_dir = self.state.best_model_checkpoint # 获取检查点目录路径
+
+        weights_path = None
+        is_safetensors = False
+        # 优先检查 safetensors 文件是否存在
+        safetensors_path = os.path.join(best_model_dir, SAFE_WEIGHTS_NAME)
+        if os.path.exists(safetensors_path):
+            weights_path = safetensors_path
+            is_safetensors = True
+            logger.info(f"Found safetensors weights file: {weights_path}")
+        else:
+            # 如果没有 safetensors，再检查 bin 文件
+            bin_path = os.path.join(best_model_dir, WEIGHTS_NAME)
+            if os.path.exists(bin_path):
+                weights_path = bin_path
+                logger.info(f"Found pytorch_model.bin weights file: {weights_path}")
+            else:
+                 # 如果两个文件都不存在，记录错误并返回
+                 logger.error(f"Could not find model weights ({SAFE_WEIGHTS_NAME} or {WEIGHTS_NAME}) in {best_model_dir}. Cannot load best model.")
+                 # 根据需要可以抛出异常或直接返回
+                 # raise FileNotFoundError(f"Model weights not found in {best_model_dir}")
+                 return
+
+        logger.info(f"Attempting to load model weights from {weights_path}")
+        try:
+            # 根据文件类型选择加载方式
+            if is_safetensors:
+                # 使用 safetensors 库加载
+                state_dict = load_safetensors(weights_path, device="cpu")
+            else:
+                # 使用 torch.load 加载 .bin 文件
+                state_dict = torch.load(weights_path, map_location="cpu")
+        except Exception as e:
+             # 捕获加载过程中可能出现的任何异常
+             logger.error(f"Error loading state_dict from {weights_path}: {e}")
+             return # 或者抛出异常
+
+        # 检查加载结果是否为字典
+        if not isinstance(state_dict, dict):
+            logger.error(f"Loaded state_dict from {weights_path} is not a dictionary. Type: {type(state_dict)}")
+            return
+
+        # --- 关键修改 ---
+        # 加载状态字典到 self.model.model (基础模型), 而不是 self.model
+        # 使用 strict=False，因为 state_dict 只包含基础模型的权重，缺少 linear 层的权重
+        logger.info("Loading state dict into self.model.model (base model)...")
+        load_result = self.model.model.load_state_dict(state_dict, strict=False)
+        # 记录加载结果，特别是 missing_keys 和 unexpected_keys
+        logger.info(f"Base model weights loaded. Load result: {load_result}")
+        # 如果 unexpected_keys 不为空，可能表示 state_dict 中有多余的键
+        # 如果 missing_keys 不为空（理论上不应该，因为是基础模型），需要检查
+        if load_result.missing_keys:
+             logger.warning(f"Missing keys when loading state_dict into base model: {load_result.missing_keys}")
+        if load_result.unexpected_keys:
+             logger.warning(f"Unexpected keys when loading state_dict into base model: {load_result.unexpected_keys}")
+        # -----------------
+
 
     def _save(self, output_dir: str = None, state_dict=None):
         # If we are executing this function, we are the process zero, so we don't check for that.

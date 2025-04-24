@@ -60,7 +60,7 @@ class ColBert(nn.Module):
 
         # self.student_loss_fct = nn.BCEWithLogitsLoss()
         self.student_loss_fct = nn.CrossEntropyLoss()
-        self.distill_loss_fct = nn.KLDivLoss(reduction='sum', log_target=True)
+        self.distill_loss_fct = nn.KLDivLoss(reduction='batchmean', log_target=False)
         self.n_way = n_way
         self.use_gpu = use_gpu
         self.device = torch.device("cuda" if use_gpu else "cpu")
@@ -200,38 +200,65 @@ class ColBert(nn.Module):
             student_scores.append(torch.cat(batch_scores))  # [1, n_way]
         
         # 4. 计算损失
-        student_scores = torch.stack(student_scores)  # [batch_size, n_way]
-        student_scores = F.softmax(student_scores, dim=-1)
-        student_loss = self.student_loss_fct(student_scores, labels.float().to(device))
+        student_logits = torch.stack(student_scores)  # [batch_size, n_way]
+        
+        # 计算student loss - CrossEntropyLoss期望原始logits作为输入
+        student_loss = self.student_loss_fct(student_logits, labels.float().to(device))
         
         if self.distillation_type == "none":
-            return student_loss, student_scores
+            return student_loss, F.softmax(student_logits, dim=-1)
         
         elif self.distillation_type == 'soft':
-            teacher_scores = self.get_teacher_scores(teacher_inputs).to(device)  # [batch_size, n_way]
+            teacher_logits = self.get_teacher_scores(teacher_inputs).to(device)
+            
             # 计算蒸馏损失
-            distill_loss = self.distill_loss_fct(
-                F.log_softmax(student_scores / self.T, dim=-1),
-                F.log_softmax(teacher_scores / self.T, dim=-1),
-            ) * self.T * self.T / self.n_way
-            distill_loss.to(device)
-            loss = (1 - self.alpha) * student_loss + self.alpha * distill_loss  # 蒸馏损失
-            print(loss, student_loss, distill_loss)
-            wandb.log({"train/loss": loss})
-            wandb.log({"train/student_loss": student_loss})
-            wandb.log({"train/distill_loss": distill_loss})
-            return loss, student_loss, student_scores, distill_loss, teacher_scores
-    
-        elif self.distillation_type == 'hard':
-            teacher_scores = self.get_teacher_scores(teacher_inputs).to(device)  # [batch_size, n_way]
-            # 计算蒸馏损失
-            distill_loss = F.cross_entropy(
-                student_scores,
-                teacher_scores.argmax(dim=-1),
+            student_log_probs = F.log_softmax(student_logits / self.T, dim=-1)
+            teacher_probs = F.softmax(teacher_logits / self.T, dim=-1)
+            
+            distill_loss = (
+                self.distill_loss_fct(
+                    student_log_probs,
+                    teacher_probs
+                ) * (self.T * self.T)
             )
-            distill_loss.to(device)
+            
             loss = (1 - self.alpha) * student_loss + self.alpha * distill_loss
-            return loss, student_loss, student_scores, distill_loss, teacher_scores
+            
+            # 记录训练指标
+            wandb.log({
+                "train/loss": loss,
+                "train/student_loss": student_loss,
+                "train/distill_loss": distill_loss,
+                "train/student_logits_mean": student_logits.mean(),
+                "train/teacher_logits_mean": teacher_logits.mean(),
+            })
+            
+            return (
+                loss, 
+                student_loss, 
+                F.softmax(student_logits, dim=-1),  # 返回概率分布
+                distill_loss,
+                F.softmax(teacher_logits, dim=-1)  # 返回概率分布
+            )
+        
+        elif self.distillation_type == 'hard':
+            teacher_logits = self.get_teacher_scores(teacher_inputs).to(device)
+            
+            # 计算硬蒸馏损失 - 使用教师模型的预测作为硬标签
+            distill_loss = F.cross_entropy(
+                student_logits,
+                teacher_logits.argmax(dim=-1)
+            )
+            
+            loss = (1 - self.alpha) * student_loss + self.alpha * distill_loss
+            
+            return (
+                loss,
+                student_loss,
+                F.softmax(student_logits, dim=-1),
+                distill_loss,
+                F.softmax(teacher_logits, dim=-1)
+            )
         else:
             raise NotImplementedError
     
