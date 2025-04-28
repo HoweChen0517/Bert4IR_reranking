@@ -1,4 +1,4 @@
-# Bert4IR_reranking
+# Finetuning BERT for Information Retrieval
 
 This is the code base for NTU-AI6103 Deep Learning & Application Course. We explore different Bert-based model design for dealing with different different downstream task in Information Retrieval.
 
